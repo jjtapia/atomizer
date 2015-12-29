@@ -19,7 +19,7 @@ def evaluate(fileName):
     with open('temp.tmp', "w") as outfile:
         d = open('dummy.tmp','w')
         start = datetime.datetime.now()
-        result = subprocess.Popen(['bngdev', './' + fileName],stderr=outfile,stdout=d)
+        result = subprocess.Popen(['bngdev', './' + fileName],stderr=outfile,stdout=d, shell=True)
         #result = subprocess.Popen(['bngdev', './' + fileName],stderr=outfile,stdout=d)
         while result.poll() is None:
             time.sleep(0.1)
@@ -49,7 +49,7 @@ def validate(fileName):
     with open('temp.tmp', "w") as outfile:
         d = open('dummy.tmp','w')
         start = datetime.datetime.now()
-        result = subprocess.Popen(['bngdev','--xml', './' + fileName],stderr=outfile,stdout=d)
+        result = subprocess.Popen(['bngdev','--xml', './' + fileName],stderr=outfile,stdout=d, shell=True)
 
         while result.poll() is None:
             time.sleep(0.1)
@@ -145,7 +145,7 @@ def main():
             with open('temp.tmp', "w") as outfile:
                 d = open('dummy.tmp','w')
                 start = datetime.datetime.now()
-                result = subprocess.Popen(['bngdev', './' + directory+ '/{0}'.format(bnglFile)],stderr=outfile,stdout=d)
+                result = subprocess.Popen(['bngdev', './' + directory+ '/{0}'.format(bnglFile)],stderr=outfile,stdout=d, shell=True)
                 while result.poll() is None:
                     time.sleep(0.1)
                     now = datetime.datetime.now()
