@@ -5,14 +5,19 @@ Created on Mon Sep  2 18:11:35 2013
 @author: proto
 """
 
-import pexpect
+import platform
+
+if platform.system() != 'Windows':
+    import pexpect
+else:
+    import winpexpect
 import subprocess
 import os
 
 from os.path import expanduser,join
 home = expanduser("~")
 
-bngExecutable = join(home,'workspace','bionetgen','bng2','BNG2.pl')
+bngExecutable = join(home,'workspace','RuleWorld','bionetgen','bng2','BNG2.pl')
 
 
 def setBngExecutable(executable):

@@ -19,8 +19,8 @@ sys.path.insert(0, os.path.join('.','SBMLparser'))
 home = expanduser("~")
 sbmlTranslator = join(home, 'workspace', 'atomizer', 'SBMLparser', 'sbmlTranslator.py')
 
-bngExecutable = join(home,'workspace','bionetgen','bng2','BNG2.pl')
-visualizeExecutable = join(home,'workspace','bionetgen','bng2','Perl2','Visualization','visualize.pl')
+bngExecutable = join(home,'workspace','RuleWorld','bionetgen','bng2','BNG2.pl')
+visualizeExecutable = join(home,'workspace','RuleWorld','bionetgen','bng2','Perl2','Visualization','visualize.pl')
 graphAnalysis = join(home,'workspace','atomizer','stats','graphAnalysis.py')
 collapsedContact = join(home,'workspace','atomizer','stats','collapsedContactMap.py')
 compareModels = join(home, 'workspace', 'atomizer', 'SBMLparser', 'rulifier', 'compareModels.py')    
@@ -60,7 +60,7 @@ def callSBMLTranslator(fileName,outputdirectory,options=[]):
                        '-o', os.path.join(outputdirectory, str(fileName.split('/')[-1])) + '.bngl',
                        '-c', '{0}/config/reactionDefinitions.json'.format(sbmlparserhome),
                        '-n', '{0}/config/namingConventions.json'.format(sbmlparserhome),
-                       '-b', '/net/antonin/home/mscbio/jjtapia/workspace/bionetgen/bng2/BNG2.pl'
+                       '-b', bngExecutable
         ],stdout=f)
     return result
 
@@ -100,6 +100,30 @@ def generateGraph(bnglfile,outputdirectory,options):
         os.chdir(retval)
 
     graphname = '.'.join(bnglfile.split('.')[:-1]) + '_regulatory.gml'
+    graphname = graphname.split('/')[-1]
+    return graphname
+
+
+def createContact(bnglfile,outputdirectory,options):
+    """
+    Obtain a contact map of a given BNGL file
+    
+    ----
+    Keyword arguments:
+    bnglfile -- The BNGL  file to be translated
+    outputdirectory -- The directory where the resulting bngl will be placed
+
+    """
+
+    command = [visualizeExecutable,'--bngl',bnglfile,'--type','contactmap']
+    command.extend(options)
+    with open(os.devnull,"w") as f:
+        retval = os.getcwd()
+        os.chdir(outputdirectory)
+        result = call(command,stdout=f)
+        os.chdir(retval)
+
+    graphname = '.'.join(bnglfile.split('.')[:-1]) + '_contactmap.gml'
     graphname = graphname.split('/')[-1]
     return graphname
 
@@ -194,7 +218,8 @@ def reactionBasedAtomizationFile(xmlFile,outputDataFrame,options):
 
         #outputDataFrame = outputDataFrame.set_value(xmlFile,'score',score)
         #outputDataFrame = outputDataFrame.set_value(xmlFile,'lenght',len(rules))
-        return xmlFile,score,len(reactions),len(molecules)*1.0/readBNGXML.getNumObservablesXML(xmlFile)
+        ccompression = len(molecules)*1.0/readBNGXML.getNumObservablesXML(xmlFile) if readBNGXML.getNumObservablesXML(xmlFile) > 0 else 1
+        return xmlFile,score,len(reactions),ccompression
         #ratomizationDict['score'] = score
         #ratomizationDict['weight'] = weight
         #ratomizationDict['length'] = len(rules)
@@ -262,6 +287,8 @@ if __name__ == "__main__":
         generateBNGXML(filenameset,output= outputdirectory)
     elif ttype == 'graph':
         generateGraphs(filenameset,output=outputdirectory,options = options)
+    elif ttype == 'contact':
+        parallelHandling(filenameset, createContact, outputdirectory)
     elif ttype == 'entropy':
         call(['python',graphAnalysis,'-s',namespace.settings,'-o',outputdirectory])
     elif ttype == 'atomizationScore':

@@ -8,7 +8,6 @@ Created on Sun Oct 13 20:10:48 2013
 import sys
 import subprocess
 from collections import Counter
-import pygraphviz as pgv
 import progressbar
 import glob
 import shutil
@@ -19,9 +18,11 @@ from copy import copy, deepcopy
 import scipy.stats
 from scipy import linalg
 import seaborn as sns
+sns.set_style("white")
 
 import sys
 import os
+import matplotlib
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(),'SBMLparser'))
 sys.path.insert(0, '../ContactMap')
@@ -32,7 +33,35 @@ import SBMLparser.utils.readBNGXML as readBNGXML
 import SBMLparser.utils.extractAtomic as extractAtomic
 import SBMLparser.contextAnalyzer
 
+def cmap_map(function,cmap):
+    """ Applies function (which should operate on vectors of shape 3:
+    [r, g, b], on colormap cmap. This routine will break any discontinuous
+    points in a colormap.
+    """
+    cdict = cmap._segmentdata
+    step_dict = {}
+    # Firt get the list of points where the segments start or end
+    for key in ('red','green','blue'):         step_dict[key] = map(lambda x: x[0], cdict[key])
+    step_list = reduce(lambda x, y: x+y, step_dict.values())
+    step_list = np.array(list(set(step_list)))
+    # Then compute the LUT, and apply the function to the LUT
+    reduced_cmap = lambda step : np.array(cmap(step)[0:3])
+    old_LUT = np.array(map( reduced_cmap, step_list))
+    new_LUT = np.array(map( function, old_LUT))
+    # Now try to make a minimal segment definition of the new LUT
+    cdict = {}
+    for i,key in enumerate(('red','green','blue')):
+        this_cdict = {}
+        for j,step in enumerate(step_list):
+            if step in step_dict[key]:
+                this_cdict[step] = new_LUT[j,i]
+            elif new_LUT[j,i]!=old_LUT[j,i]:
+                this_cdict[step] = new_LUT[j,i]
+        colorvector=  map(lambda x: x + (x[1], ), this_cdict.items())
+        colorvector.sort()
+        cdict[key] = colorvector
 
+    return matplotlib.colors.LinearSegmentedColormap('colormap',cdict,1024)
 
 def createRuleBiPartite(rule, transformationCenter, transformationContext,
                         transformationProduct, actionNames, atomicArray, fileName, redundantPattern):
@@ -848,9 +877,11 @@ def reactionBasedAtomization(reactions):
     """
     atomizedProcesses = 0
     trueProcessesCounter = 0
+    syndelCounter = 0
     for reaction in reactions:
         if '0' in  [str(x) for x in reaction[0].reactants] or '0' in \
                 [str(x) for x in reaction[0].products]:
+            #syndelCounter += 1
             continue
         trueProcessesCounter += 1
         # if len([x for x in action.action if x in ['Add','Delete']]) == 0:
@@ -955,8 +986,20 @@ def generateBNGXML(directory,format='BNGXML'):
 
 from collections import defaultdict
 
+def extractActiveMolecules(rules):
+    moleculeSet = set()
+    for rule in rules:
+        for reactant in rule[0].reactants:
+            for molecule in reactant.molecules:
+                moleculeSet.add(molecule.name)
+        for product in rule[0].products:
+            for molecule in reactant.molecules:
+                moleculeSet.add(molecule.name)
 
-def reactionBasedAtomizationDistro(directory):
+
+    return moleculeSet
+
+def reactionBasedAtomizationDistro(directory, outputDir):
     '''
     calculates a rection atomization based metric:
     ration of atomized reactions (non syndeg) in a model
@@ -985,6 +1028,7 @@ def reactionBasedAtomizationDistro(directory):
     print 'analyzing {0} bng-xml files'.format(len(xmlFiles))
     progress = progressbar.ProgressBar()
     ruleslen0 = 0
+    testSet = []
     for i in progress(range(len(xmlFiles))):
 
         xml = xmlFiles[i]
@@ -993,7 +1037,7 @@ def reactionBasedAtomizationDistro(directory):
             # console.bngl2xml('complex/output{0}.bngl'.format(element),timeout=10)
             try:
 
-                _, rules, _ = readBNGXML.parseXML(xml)
+                molecules, rules, _ = readBNGXML.parseXML(xml)
             except IOError:
                 print xml
                 continue
@@ -1010,15 +1054,20 @@ def reactionBasedAtomizationDistro(directory):
             ratomizationDict[xml]['score'] = score
             ratomizationDict[xml]['weight'] = weight
             ratomizationDict[xml]['length'] = len(rules)
+            activeMolecules = extractActiveMolecules(rules)
+            activeMoleculeTypes = [x for x in molecules if x.name in activeMolecules]
+            ratomizationDict[xml]['yield'] = len([x for x in activeMoleculeTypes if len(x.components) > 0])* 1.0 / len(activeMoleculeTypes) if len(activeMoleculeTypes) > 0 else 0
             if len(rules) == 0:
                 ruleslen0 += 1
                 continue
-            syndelArray.append((len(rules) - weight) * 1.0 / len(rules))
+            syndelArray.append(1 - (len(rules) - weight) * 1.0 / len(rules))
             if score == -1:
                 syndel += 1
                 # ratomizationList.append([0,0,len(rules)])
                 continue
-            ratomizationList.append([score, weight, len(rules)])
+            ratomizationList.append([score, weight, len(rules), ratomizationDict[xml]['yield']])
+            if(ratomizationDict[xml]['yield'] > 0.9 and weight*1.0/len(rules) < 0.5):
+                testSet.append(xml)
             if len(rules) > 10:
                 if weight * 1.0 / len(rules) >= 0.1 and score < 0.1:
                     largeUseless.append(xml)
@@ -1034,7 +1083,7 @@ def reactionBasedAtomizationDistro(directory):
         except IOError:
             print 'io'
             continue
-    with open('ratomizationp2m.dump', 'wb') as f:
+    with open('{0}/ratomizationp2m.dump'.format(outputDir), 'wb') as f:
         pickle.dump(ratomizationDict, f)
 
     print '{0} models with 0 rules'.format(ruleslen0)
@@ -1043,23 +1092,25 @@ def reactionBasedAtomizationDistro(directory):
     print 'atomized', Counter(atomizedDistro)
     print 'nonatomized', Counter(nonAtomizedDistro)
     print 'models with 2->1 non atomized reactions', interesting
-    with open('nonatomizedreactions.dump', 'wb') as f:
+    with open('{0}/nonatomizedreactions.dump'.format(outputDir), 'wb') as f:
         pickle.dump(generalSignature, f)
-    ratomization, weights, length = zip(*ratomizationList)
-
-    ratomizationm10, weightsm10, lengthm10 = zip(*ratomizationListm10)
-    ratomizationl10, weightsl10, lengthl10 = zip(*ratomizationListl10)
+    ratomization, weights, length, yieldArray = zip(*ratomizationList)
+    print '=========='
+    print testSet
+    #ratomizationm10, weightsm10, lengthm10 = zip(*ratomizationListm10)
+    #ratomizationl10, weightsl10, lengthl10 = zip(*ratomizationListl10)
 
     constructHistogram(syndelArray, 'syndelHist', 'Fraction of synthesis and degradation reactions', np.ones(
         len(syndelArray)), normed=False)
 
     plt.clf()
+    sns.set_palette("BuGn_d")
 
-    sns.distplot(ratomization, kde=False, rug=True, bins=10);
+    sns.distplot(ratomization, kde=False, rug=False, hist_kws=dict(alpha=1),bins=10);
     #plt.hist(ratomization)
     plt.xlabel('Reaction atomization level', fontsize=18)
     plt.ylabel('Number of models', fontsize=18)
-    plt.savefig('ratomizationHist.png')
+    plt.savefig('{0}/ratomizationHist.png'.format(outputDir))
 
     weights = np.array(weights)
     length = np.array(length)
@@ -1080,14 +1131,14 @@ def reactionBasedAtomizationDistro(directory):
     tmp2.sort(key=lambda x: x[0])
 
     # heatmap showing histogram of atomization vs non syn-deg
-    heatmap, xedges, yedges = np.histogram2d(tmp, ratomization, bins=12)
+    heatmap, xedges, yedges = np.histogram2d(ratomization, tmp, bins=12)
     #heatmap = np.log2(heatmap)
 
     print 'correlation syndel-atomization', scipy.stats.pearsonr(tmp, ratomization)
     extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
     heatmap[heatmap < 0] = 0
     plt.clf()
-    cm = plt.cm.get_cmap('YlOrRd')
+    cm = plt.cm.get_cmap('YlGnBu')
 
     plt.imshow(heatmap, extent=extent, aspect='auto',
                origin='lower', interpolation='nearest', cmap=cm)
@@ -1097,15 +1148,80 @@ def reactionBasedAtomizationDistro(directory):
     cb.set_label('Number of models', fontsize=18)
     # cb.set_ticklabels(['0',''])
     # plt.show()
-    plt.savefig('atomizationvssyndelHeatmap.png')
+    plt.savefig('{0}/atomizationvssyndelHeatmap.png'.format(outputDir))
 
     plt.clf()
     plt.scatter(tmp, ratomization)
     plt.ylabel('Atomization level', fontsize=24)
     plt.xlabel('Percentage of non syn=del reactions', fontsize=24)
-    plt.savefig('atomizationScatterplot.png')
+    plt.savefig('{0}/atomizationScatterplot.png'.format(outputDir))
+
+    sns.set_palette("BuGn_d")
+    #yield histogram
+    plt.clf()
+
+    sns.distplot(yieldArray, kde=False, rug=False, hist_kws=dict(alpha=1),bins=10);
+    #plt.hist(ratomization)
+    plt.xlabel('Yield level', fontsize=18)
+    plt.ylabel('Number of models', fontsize=18)
+    plt.savefig('{0}/yieldHist.png'.format(outputDir))
+
+
+    #yield vs atomization
+    plt.clf()
+    plt.scatter(ratomization, yieldArray)
+    plt.ylabel('Atomization yield', fontsize=24)
+    plt.xlabel('Atomization score', fontsize=24)
+    plt.savefig('{0}/atomizationvsyield.png'.format(outputDir))
+
+    #yield vs atomization heatmap
+    plt.clf()
+    heatmap, xedges, yedges = np.histogram2d(yieldArray, ratomization, bins=12)
+
+    #light_jet = cmap_map(lambda x: np.log2(x), plt.cm.get_cmap('YlGnBu'))
+    heatmap = np.log2(heatmap)
+    print 'correlation ratomization-yieldArray', scipy.stats.pearsonr(ratomization, yieldArray)
+    extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+    heatmap[heatmap < 0] = 0
+    plt.clf()
+    cm = plt.cm.get_cmap('YlGnBu')
+
+    plt.imshow(heatmap, extent=extent, aspect='auto',
+               origin='lower', interpolation='nearest', cmap=cm)
+    plt.xlabel('Atomization level', fontsize=18)
+    plt.ylabel('Yield level', fontsize=18)
+    cb = plt.colorbar()
+    cb.set_label('Number of models', fontsize=18)
+    # cb.set_ticklabels(['0',''])
+    # plt.show()
+    plt.savefig('{0}/atomizationvsyieldHeatmap.png'.format(outputDir))
+
+    #yield vs syndelheatmap
+    plt.clf()
+    heatmap, xedges, yedges = np.histogram2d(tmp, yieldArray, bins=12)
+    heatmap = np.log2(heatmap)
+
+    print 'correlation syndel-atomization', scipy.stats.pearsonr(tmp, ratomization)
+    extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+    heatmap[heatmap < 0] = 0
+    plt.clf()
+    cm = plt.cm.get_cmap('YlGnBu')
+
+    plt.imshow(heatmap, extent=extent, aspect='auto',
+               origin='lower', interpolation='nearest', cmap=cm)
+    plt.xlabel('Yield level', fontsize=18)
+    plt.ylabel('Percentage of non syn-del reactions', fontsize=18)
+    cb = plt.colorbar()
+    cb.set_label('log2(Number of models)', fontsize=18)
+    # cb.set_ticklabels(['0',''])
+    # plt.show()
+    plt.savefig('{0}/yieldvssyndelHeatmap.png'.format(outputDir))
+
+
 
     # heatmap showing average atomization of %syn-def vs model size
+    plt.clf()
+
     ratomizationHeatmapCounter = defaultdict(lambda: defaultdict(list))
     _, bin_edges = np.histogram(length, 4)
     digitizedLength = np.digitize(length, bin_edges)
@@ -1126,11 +1242,11 @@ def reactionBasedAtomizationDistro(directory):
     heatmap = np.log2(heatmap)
 
     plt.clf()
-    plt.hist(length, bins=30 ** np.linspace(np.log10(1), np.log10(1000), 40))
+    plt.hist(length, bins=20 ** np.linspace(np.log10(1), np.log10(1000), 20))
     plt.xscale('log')
     plt.xlabel(
         'Number of reactions ({0} models)'.format(len(length)), fontsize=18)
-    plt.savefig('numberOfReactionsHist.png')
+    plt.savefig('{0}/numberOfReactionsHist.png'.format(outputDir))
 
     plt.clf()
     ax = plt.gca()
@@ -1142,7 +1258,7 @@ def reactionBasedAtomizationDistro(directory):
     # ax.set_autoscale_on(False)
     plt.ylim([-0.1, 1.1])
     # ax.set_yscale('log')
-    plt.savefig('atomizationvsnsyndel.png')
+    plt.savefig('{0}/atomizationvsnsyndel.png'.format(outputDir))
 
     plt.clf()
     plt.scatter(length, 1 - tmp, s=40,
@@ -1158,17 +1274,17 @@ def reactionBasedAtomizationDistro(directory):
     cb = plt.colorbar()
     cb.set_label('Atomization level')
 
-    plt.savefig('reactionsvssyndelwlinear.png')
+    plt.savefig('{0}/reactionsvssyndelwlinear.png'.format(outputDir))
 
     plt.clf()
     plt.imshow(ratomizationHeatmap,
                extent=extent, aspect='auto', origin='lower', interpolation='nearest')
-    plt.xlabel('Fraction of non syn-del reactionsModel size')
+    plt.xlabel('Fraction of non syn-del reactions')
     plt.ylabel('Model Size (reactions)')
     cb = plt.colorbar()
     cb.set_label('Atomization level')
     # plt.show()
-    plt.savefig('atomizationHeatMap2.png')
+    plt.savefig('{0}/atomizationHeatMap2.png'.format(outputDir))
 
     heatmap[heatmap < 0] = 0
     plt.clf()
@@ -1179,28 +1295,28 @@ def reactionBasedAtomizationDistro(directory):
     cb = plt.colorbar()
     cb.set_label('log2(Number of models)')
     plt.show()
-    plt.savefig('atomizationHeatMap3.png')
+    plt.savefig('{0}/atomizationHeatMap3.png'.format(outputDir))
 
     plt.clf()
     plt.scatter(length, tmp)
     plt.xlabel('Number of reactions', fontsize=24)
     plt.xscale('log')
     plt.ylabel('Atomization level', fontsize=24)
-    plt.savefig('scatterreactionsvslevel.png')
+    plt.savefig('{0}/scatterreactionsvslevel.png'.format(outputDir))
 
     ratomization = np.sort(ratomization)
-    ratomizationm10 = np.sort(ratomizationm10)
-    ratomizationl10 = np.sort(ratomizationl10)
+    #ratomizationm10 = np.sort(ratomizationm10)
+    #ratomizationl10 = np.sort(ratomizationl10)
 
     yvals = np.arange(len(ratomization)) / float(len(ratomization))
-    plotresults(ratomization, yvals, 'ratomizationw',
+    plotresults(ratomization, yvals, '{0}/ratomizationw'.format(outputDir),
                 'Reaction atomization level ({0} models)'.format(len(ratomizationList)))
-    yvals = np.arange(len(ratomizationm10)) / float(len(ratomizationm10))
-    plotresults(ratomizationm10, yvals, 'ratomization_m10w',
-                'Reaction atomization level >10 reactions({0} models)'.format(len(ratomizationListm10)))
-    yvals = np.arange(len(ratomizationl10)) / float(len(ratomizationl10))
-    plotresults(ratomizationl10, yvals, 'ratomization_l10w',
-                'Reaction atomization level <=10 reactions({0} models)'.format(len(ratomizationListl10)))
+    #yvals = np.arange(len(ratomizationm10)) / float(len(ratomizationm10))
+    #plotresults(ratomizationm10, yvals, 'ratomization_m10w',
+    #            'Reaction atomization level >10 reactions({0} models)'.format(len(ratomizationListm10)))
+    #yvals = np.arange(len(ratomizationl10)) / float(len(ratomizationl10))
+    #plotresults(ratomizationl10, yvals, 'ratomization_l10w',
+    #            'Reaction atomization level <=10 reactions({0} models)'.format(len(ratomizationListl10)))
     print 'syndel', syndel
     print '>10 with 0', largeUseless
 
@@ -1438,7 +1554,7 @@ if __name__ == "__main__":
     #print failures
     #spaceCoveredCDF('complex2')
     # modelCompositionCDF('complex2')
-    reactionBasedAtomizationDistro('curated')
+    reactionBasedAtomizationDistro('non_curated', 'testNonCurated')
     # nonAtomizedSpeciesAnalysis()
     # createGroupingCDF()
     #print reactionBasedAtomizationFile('curated/BIOMD0000000019.xml.xml')

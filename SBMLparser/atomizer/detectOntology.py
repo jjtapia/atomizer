@@ -6,7 +6,6 @@ Created on Sat Oct 19 15:19:35 2013
 """
 import pprint
 import libsbml
-import numpy as np
 import difflib
 from collections import Counter
 import json
@@ -15,21 +14,9 @@ import pickle
 from os import listdir
 from os.path import isfile, join
 import numpy as np
-import functools
+from utils.util import pmemoize as memoize
 
-
-def memoize(obj):
-    cache = obj.cache = {}
-
-    @functools.wraps(obj)
-    def memoizer(*args, **kwargs):
-        key = str(args) + str(kwargs)
-        if key not in cache:
-            cache[key] = obj(*args, **kwargs)
-        return cache[key]
-    return memoizer
-
-
+@memoize
 def levenshtein(s1, s2):
     l1 = len(s1)
     l2 = len(s2)
@@ -43,6 +30,7 @@ def levenshtein(s1, s2):
             z = matrix[zz][sz] if s1[sz] == s2[zz] else matrix[zz][sz] + 1
             matrix[zz + 1][sz + 1] = min(matrix[zz + 1][sz] + 1, matrix[zz][sz + 1] + 1, z)
     return matrix[l2][l1]
+
 
 
 def getDifferences(scoreMatrix, speciesName, threshold):
@@ -133,7 +121,6 @@ def defineEditDistanceMatrix3(speciesName, similarityThreshold=4, parallel=False
                 differenceList.append(tuple([x for x in difference if '+' in x]))
     return namePairs, differenceList, ''
 
-
 def defineEditDistanceMatrix(speciesName, similarityThreshold=4, parallel=False):
     '''
     obtains a distance matrix and a pairs of elements that are close
@@ -166,7 +153,9 @@ def defineEditDistanceMatrix(speciesName, similarityThreshold=4, parallel=False)
             scoreMatrix2[idx][idx2] = comparison
             scoreMatrix2[idx2][idx] = scoreMatrix2[idx][idx2]
 
+
     namePairs, differenceList = getDifferences(scoreMatrix2, speciesName, similarityThreshold)
+
     differenceCounter.update(differenceList)
     return namePairs, differenceList, differenceCounter
 

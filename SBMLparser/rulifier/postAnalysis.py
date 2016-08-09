@@ -6,7 +6,40 @@ import itertools
 from copy import copy
 from utils import readBNGXML
 
+import functools
+import marshal
+def memoize(obj):
+    cache = obj.cache = {}
 
+    @functools.wraps(obj)
+    def memoizer(*args, **kwargs):
+        key = marshal.dumps([args, kwargs])
+        if key not in cache:
+            cache[key] = obj(*args, **kwargs)
+        return cache[key]
+    return memoizer
+
+
+@memoize
+def resolveEntry(dependencyGraph, moleculeSet):
+    """
+    resolve an entry to its basic components according to dependency graph
+    >>> dependencyGraph = {'EGF_EGFR_2':[['EGF_EGFR','EGF_EGFR']],'EGF_EGFR':[['EGF','EGFR']],'EGFR':[],'EGF':[]}
+    >>> resolveEntry(dependencyGraph, ['EGF_EGFR_2'])
+    ['EGF', 'EGFR', 'EGF', 'EGFR']
+
+    """
+    if type(moleculeSet) == str:
+        return [moleculeSet]
+    if len(moleculeSet) == 1 and dependencyGraph[moleculeSet[0]] == []:
+        return moleculeSet
+    compositionList = []
+    for molecule in moleculeSet:
+        if len(dependencyGraph[molecule]) == 0:
+            compositionList.append(molecule)
+        else:
+            compositionList.extend(resolveEntry(dependencyGraph, dependencyGraph[molecule][0]))
+    return compositionList
 
 
 class ModelLearning:
@@ -127,19 +160,6 @@ class ModelLearning:
         """
         pass
 
-    def resolveEntry(self, dependencyGraph, moleculeSet):
-        """
-        resolve an entry to its basic components according to dependency graph
-        """
-        if type(moleculeSet) == str:
-            return [moleculeSet]
-        if len(moleculeSet) == 1 and dependencyGraph[moleculeSet[0]] == []:
-            return moleculeSet
-        compositionList = []
-        for molecule in moleculeSet:
-            compositionList.extend(self.resolveEntry(dependencyGraph, dependencyGraph[molecule][0]))
-        return compositionList
-
     def getDifference(self, pattern1, pattern2, translator):
         if pattern1 not in translator or pattern2 not in translator:
             return None
@@ -196,8 +216,8 @@ class ModelLearning:
                                 #    continue
                                 if localAnalysisFlag:
                                     # get those elements that differ between the two candidates and that correspond to the current <molecule> being analyzed
-                                    difference = [x for x in candidate if x not in alternativeCandidate and self.resolveEntry(database.prunnedDependencyGraph, [x])[0] == molecule]
-                                    alternativeDifference = [x for x in alternativeCandidate if x not in candidate and molecule in self.resolveEntry(database.prunnedDependencyGraph, [x])[0]]
+                                    difference = [x for x in candidate if x not in alternativeCandidate and resolveEntry(database.prunnedDependencyGraph, [x])[0] == molecule]
+                                    alternativeDifference = [x for x in alternativeCandidate if x not in candidate and molecule in resolveEntry(database.prunnedDependencyGraph, [x])[0]]
 
                                     # get the difference patterns for the two species
                                     if not difference or not alternativeDifference:
@@ -297,16 +317,27 @@ def defineConsole():
     defines the program console line commands
     """
     parser = argparse.ArgumentParser(description='SBML to BNGL translator')
-    parser.add_argument('-i', '--input', type=str, help='sbml file', required=True)
+    parser.add_argument('-i', '--input', type=str, help='sbml file')
     parser.add_argument('-r', '--raw', type=str, help='raw sbml file')
+    parser.add_argument('-t','--tests',action='store_true',help='run unit tests')
     return parser
 
+
+def runTests():
+    import doctest
+    doctest.testmod()
 
 
 if __name__ == "__main__":
     parser = defineConsole()
     namespace = parser.parse_args()
+
+
+    if namespace.tests:
+        runTests()
+        exit()
     inputFile = namespace.input
+
 
     modelLearning = ModelLearning(namespace.input, namespace.raw)
     #print modelLearning.getMotifFromPair('EGFR','grb2','shc')

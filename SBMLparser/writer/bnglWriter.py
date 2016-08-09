@@ -113,7 +113,7 @@ def bnglFunction(rule,functionTitle,reactants,compartments=[],parameterDict={},r
         return '({0}){1}({2})'.format(match.group(2),operator,exponent)
     def compParse(match):
 
-        translator = {'gt':'>','lt':'<','and':'&&','or':'||','geq':'>=','leq':'<=','eq':'=='}
+        translator = {'gt':'>','lt':'<','and':'&&','or':'||','geq':'>=','leq':'<=','eq':'==','neq':'!='}
         exponent = match.group(3)
         operator = translator[match.group(1)]
         return '{0} {1} {2}'.format(match.group(2),operator,exponent)
@@ -265,7 +265,7 @@ def bnglFunction(rule,functionTitle,reactants,compartments=[],parameterDict={},r
         if compartment[0] in tmp:
             tmp =re.sub(r'(\W|^)({0})(\W|$)'.format(compartment[0]),r'\1 {0} \3'.format(str(compartment[1])),tmp)
             #tmp = re.sub(r'(\W)({0})(\W)'.format(compartment[0]),r'\1%s\3' % str(compartment[1]),tmp)
-            logMess('INFO:Translation','Exchanging reference to compartment %s for its dimensions' % compartment[0])
+            #logMess('INFO:MSC005','Exchanging reference to compartment %s for its dimensions' % compartment[0])
     
     #change references to time for time()    
     #tmp =re.sub(r'(\W|^)(time)(\W|$)',r'\1time()\3',tmp)
@@ -324,7 +324,7 @@ def curateParameters(param):
         param[element] = tmp
     return param
     
-def finalText(comments,param,molecules,species,observables,rules,functions,compartments,fileName):
+def finalText(comments,param,molecules,species,observables,rules,functions,compartments,annotations,fileName):
     #output = open(fileName,'w')
     output = StringIO.StringIO()
     output.write(comments.decode('ascii','ignore'))
@@ -333,7 +333,7 @@ def finalText(comments,param,molecules,species,observables,rules,functions,compa
     output.write(sectionTemplate('parameters',param))
     if len(compartments) > 0:
         output.write(sectionTemplate('compartments',compartments))          
-    output.write(sectionTemplate('molecule types',molecules))
+    output.write(sectionTemplate('molecule types',molecules, annotations['moleculeTypes']))
     output.write(sectionTemplate('seed species',species))
     output.write(sectionTemplate('observables',observables))
     if len(functions) > 0:
@@ -348,9 +348,15 @@ def finalText(comments,param,molecules,species,observables,rules,functions,compa
     #output.close()
     
     return output.getvalue()
-def sectionTemplate(name,content):
+def sectionTemplate(name,content,annotations={}):
     section = 'begin %s\n' % name
-    temp = ['\t%s\n' % line for line in content]
+    temp  = []
+    for line in content:
+        if line in annotations:
+            for ann in annotations[line]:
+                temp.append('\t%s\n' % ann)
+        temp.append('\t%s\n' % line)
+    #temp = ['\t%s\n' % line for line in content]
     section += ''.join(temp)
     section += 'end %s\n' % name
     return section

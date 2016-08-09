@@ -1,6 +1,7 @@
 import random
 from copy import copy
 import pprint
+import argparse
 
 def processEdge(edgeInfo):
     pass
@@ -9,7 +10,8 @@ def gml2cyjson(gmlText, graphtype=None):
     """
     Converts a gml graph definition to the format that cytoscape.js expects
     """
-    r = lambda: random.randint(0, 255)
+    #r = lambda: random.randint(0, 255)
+    r = lambda: 100
 
     jsonDict = {}
     jsonDict['style'] =  [
@@ -37,6 +39,10 @@ def gml2cyjson(gmlText, graphtype=None):
       'selector': 'edge',
       'css': {
         'target-arrow-shape': 'none'
+        
+      },
+      'style':{
+        'width': 10
       }
     },
     {
@@ -68,7 +74,7 @@ def gml2cyjson(gmlText, graphtype=None):
             if str(gmlText.node[node]['gid']) not in colorDict:
                 if 'gid' in gmlText.node[str(gmlText.node[node]['gid'])]:
                     if str(gmlText.node[str(gmlText.node[node]['gid'])]['gid']) not in colorDict:
-                        if graphtype == 'regulatory':
+                        if graphtype in ['regulatory', 'std']:
                             newColor = gmlText.node[node]['graphics']['fill']
                         else:
                             newColor = '#%02X%02X%02X' % (r(), r(), r())
@@ -77,7 +83,7 @@ def gml2cyjson(gmlText, graphtype=None):
                     else:
                         colorDict[str(gmlText.node[node]['gid'])] = colorDict[str(gmlText.node[str(gmlText.node[node]['gid'])]['gid'])]
                 else:
-                    if graphtype == 'regulatory':
+                    if graphtype == ['regulatory', 'std']:
                         colorDict[str(gmlText.node[node]['gid'])] = gmlText.node[node]['graphics']['fill']
                     else:
                         colorDict[str(gmlText.node[node]['gid'])] = '#%02X%02X%02X' % (r(), r(), r())
@@ -98,7 +104,7 @@ def gml2cyjson(gmlText, graphtype=None):
                 tmp = {'data':{}}
                 
 
-                if graphtype == 'regulatory':
+                if graphtype in ['regulatory', 'std']:
                     if 'graphics' in gmlText.edge[link][dlink]:
                         if gmlText.edge[link][dlink]['graphics']['arrow'] == 'first':
                             tmp['data']['source'] = int(dlink)
@@ -149,12 +155,25 @@ def gml2cyjson(gmlText, graphtype=None):
     return jsonDict
 
 
+def defineConsole():
+    parser = argparse.ArgumentParser(description='SBML to BNGL translator')
+    parser.add_argument('-i', '--input', type=str, help='settings file', required=True)
+    parser.add_argument('-t', '--type', type=str, help='settings file', required=True)
+
+    return parser
+
+
+
 if __name__ == '__main__':
     import networkx as nx
     import pprint
+    parser = defineConsole()
+    namespace = parser.parse_args()
+
     #with open ('/home/proto/workspace/bionetgen/bng2/Models2/toy-jim_regulatory.gml','r') as f:
     #    s = f.read()
-    s = nx.read_gml('/home/proto/workspace/bionetgen/bng2/Models2/toy-jim_regulatory.gml')    
-    graph = gml2cyjson(s,'regulatory')
+
+    s = nx.read_gml(namespace.input)    
+    graph = gml2cyjson(s,namespace.type)
 
 
