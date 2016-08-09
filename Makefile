@@ -11,9 +11,10 @@ all:
 	if ! test -d pyinstaller2 ; then \
 		unzip utils/pyinstaller2.zip;   \
 	fi ;
-	virtualenv venv
+	virtualenv --no-site-packages venv
 	source venv/bin/activate
 	pip install --user -r requirements.txt
+
 
 ifeq ($(OS),Windows_NT)
 ifeq ($(shell uname -o),Cygwin)
