@@ -9,6 +9,7 @@ environment:
       LIBSBML_URL: "http://downloads.sourceforge.net/project/sbml/libsbml/5.12.0/stable/Windows/64-bit/python/libSBML-5.12.0-win-py2.7-amd64.exe"
       NUMPY_URL: "https://www.dropbox.com/s/sq1d10lo9z4k7mi/numpy-1.9.3%2Bmkl-cp27-none-win_amd64.whl"
 install:
+  - choco install cygwin
   - choco install -r -y make
   - choco sources add -n "msft" -s "https://go.microsoft.com/fwlink/?LinkID=230477"
   - choco install libxml2
